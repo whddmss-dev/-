@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChillerQA 냉매관리시스템</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:#f3f6fa;color:#172033}
+
+/* 스플래시 화면 (남색 배경 + Fade away) */
+#splash-screen {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background-color: #0d2b49; /* 남색 (Navy) */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  transition: opacity 1.2s ease-out, visibility 1.2s ease-out;
+}
+#splash-screen.fade-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+#splash-screen h1 {
+  color: #ffffff;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  margin: 0;
+  text-align: center;
+  padding: 0 20px;
+  animation: pulseText 1.5s ease-in-out infinite alternate;
+}
+@keyframes pulseText {
+  from { opacity: 0.85; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1.02); }
+}
+
+header{background:#123e65;color:white;padding:20px 16px}
+header h1{margin:0;font-size:22px}
+header p{margin:7px 0 0;color:#c9d9e8;font-size:13px}
+main{max-width:1000px;margin:auto;padding:16px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.card{background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px #0000000c;margin-bottom:14px}
+.stat small{color:#68758a}
+.stat strong{display:block;font-size:24px;margin-top:6px}
+nav{display:flex;overflow:auto;gap:8px;margin:14px 0}
+nav button{white-space:nowrap;border:0;padding:10px 13px;border-radius:10px;background:#dce6f0;color:#123e65;font-weight:700}
+nav button.active{background:#123e65;color:white}
+button{cursor:pointer;border:0;border-radius:9px;padding:10px 13px;background:#1565a8;color:white;font-weight:650}
+button.secondary{background:#e7edf4;color:#183b59}
+button.danger{background:#b83232;padding:6px 10px;font-size:12px}
+button.warning{background:#d97706}
+input,select{width:100%;padding:11px;border:1px solid #ccd6e1;border-radius:9px;font-size:15px;background:white}
+label{display:block;font-size:13px;color:#46566a;margin:10px 0 5px}
+form .grid{gap:10px}
+.hide{display:none!important}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #e8edf2}
+th{color:#52647a;font-size:12px}
+td{word-break:break-word}
+.scroll{overflow:auto}
+.pill{font-size:12px;padding:4px 8px;border-radius:20px;background:#e9f4ff;color:#17578b;font-weight:600}
+.pill.low{background:#fee2e2;color:#b91c1c}
+.pill.ok{background:#dcfce7;color:#15803d}
+.muted{color:#718096;font-size:13px}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.notice{background:#fff7df;border:1px solid #f1d58b;border-radius:12px;padding:12px;color:#745314;font-size:13px;margin-bottom:12px}
+.alert-banner{background:#fee2e2;border:1px solid #f87171;border-radius:12px;padding:14px;color:#991b1b;font-size:14px;margin-bottom:14px}
+.alert-banner strong{display:block;margin-bottom:6px;font-size:15px}
+.email-chip{display:inline-flex;align-items:center;gap:6px;background:#e2e8f0;color:#1e293b;padding:6px 10px;border-radius:20px;font-size:13px;margin:4px}
+.email-chip span{cursor:pointer;color:#b83232;font-weight:bold;padding:0 4px}
+#reader{width:100%;max-width:480px;margin:auto}
+#qrprint{display:flex;flex-wrap:wrap;gap:12px}
+.labelbox{border:1px dashed #aaa;padding:12px;width:180px;text-align:center;background:white}
+@media(max-width:650px){
+  .grid,.stats{grid-template-columns:1fr}
+  main{padding:12px}
+  .card{padding:13px}
+  header{padding:16px}
+  #splash-screen h1{font-size:24px}
+}
+@media print{
+  header,nav,.noprint,.notice,.alert-banner,#splash-screen{display:none!important}
+  body{background:white}
+  main{padding:0}
+  .labelbox{break-inside:avoid}
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+
+<!-- 인트로 스플래시 화면 -->
+<div id="splash-screen">
+  <h1>[ChillerQA냉매관리시스템]</h1>
+</div>
+
+<header>
+  <h1>♻️ ChillerQA 냉매관리시스템</h1>
+  <p>입고 · 사용 · 회수 · 냉매별 임계치 알림 및 월별 재고 관리</p>
+</header>
+
+<main>
+  <div id="alert-area"></div>
+  <div class="notice noprint">현재 버전은 브라우저(LocalStorage)에 데이터가 저장됩니다. 브라우저 데이터 삭제 시 기록이 사라질 수 있으니 이력 탭에서 CSV/JSON 백업을 권장합니다.</div>
+  <div class="stats" id="stats"></div>
+  <nav class="noprint" id="nav"></nav>
+  <section id="view"></section>
+</main>
+
+<script>
+// 스플래시 화면 Fade Out 제어
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    const splash = document.getElementById('splash-screen');
+    if (splash) {
+      splash.classList.add('fade-out');
+      setTimeout(() => splash.remove(), 1200);
+    }
+  }, 1500);
+});
+
+const KEY = 'chillerqa_refrigerant_v2';
+const DEFAULT_DATA = {
+  refrigerants: [
+    { name: 'R-134a', threshold: 20 },
+    { name: 'R-410A', threshold: 20 },
+    { name: 'R-1234ze', threshold: 15 },
+    { name: 'R-32', threshold: 15 }
+  ],
+  cylinders: [],
+  logs: [],
+  mailSettings: {
+    emails: [],
+    interval: 'daily', // daily, weekly, monthly
+    lastSent: null,
+    emailjsServiceId: '',
+    emailjsTemplateId: '',
+    emailjsPublicKey: ''
+  }
+};
+
+let raw = localStorage.getItem(KEY) || localStorage.getItem('refrigerant_qr_inventory_v1');
+let data = raw ? JSON.parse(raw) : JSON.parse(JSON.stringify(DEFAULT_DATA));
+
+// 기존 v1 데이터 마이그레이션 보완
+if (!data.refrigerants) {
+  const existingTypes = [...new Set((data.cylinders || []).map(c => c.refrigerant))];
+  data.refrigerants = existingTypes.length
+    ? existingTypes.map(name => ({ name, threshold: 10 }))
+    : JSON.parse(JSON.stringify(DEFAULT_DATA.refrigerants));
+}
+if (!data.mailSettings) {
+  data.mailSettings = JSON.parse(JSON.stringify(DEFAULT_DATA.mailSettings));
+}
+
+let tab = 'dashboard', scanner = null;
+
+function save(skipRender = false) {
+  localStorage.setItem(KEY, JSON.stringify(data));
+  if (!skipRender) render();
+}
+
+function fmt(n) {
+  return (Number(n) || 0).toLocaleString('ko-KR', { maximumFractionDigits: 3 }) + ' kg';
+}
+
+function balance(c) {
+  return c.initial + data.logs
+    .filter(x => x.cylinderId === c.id)
+    .reduce((s, x) => s + (x.type === 'in' ? x.qty : x.type === 'recovery' ? x.qty : -x.qty), 0);
+}
+
+function getStockByRefrigerant(refName) {
+  return data.cylinders
+    .filter(c => c.refrigerant === refName)
+    .reduce((s, c) => s + balance(c), 0);
+}
+
+function getLowStockItems() {
+  return data.refrigerants
+    .map(r => {
+      const current = getStockByRefrigerant(r.name);
+      return { name: r.name, threshold: Number(r.threshold) || 0, current };
+    })
+    .filter(item => item.current <= item.threshold);
+}
+
+function totals() {
+  let incoming = data.cylinders.reduce((s, c) => s + c.initial, 0) + data.logs.filter(x => x.type === 'in').reduce((s, x) => s + x.qty, 0);
+  let used = data.logs.filter(x => x.type === 'use').reduce((s, x) => s + x.qty, 0);
+  let recovered = data.logs.filter(x => x.type === 'recovery').reduce((s, x) => s + x.qty, 0);
+  let stock = data.cylinders.reduce((s, c) => s + balance(c), 0);
+  return { incoming, used, recovered, stock };
+}
+
+// 메일 송부 주기 체크 (일/주/월)
+function isIntervalDue() {
+  const { interval, lastSent } = data.mailSettings;
+  if (!lastSent) return true;
+  const last = new Date(lastSent).getTime();
+  const now = Date.now();
+  const diffDays = (now - last) / (1000 * 60 * 60 * 24);
+  if (interval === 'daily') return diffDays >= 1;
+  if (interval === 'weekly') return diffDays >= 7;
+  if (interval === 'monthly') return diffDays >= 30;
+  return true;
+}
+
+function intervalLabel(val) {
+  return val === 'daily' ? '매일 (1일)' : val === 'weekly' ? '매주 (7일)' : '매월 (30일)';
+}
+
+// 알림 배너 및 자동 메일 트리거 체크
+function checkAlerts() {
+  const lowItems = getLowStockItems();
+  const alertArea = document.getElementById('alert-area');
+  if (!lowItems.length) {
+    alertArea.innerHTML = '';
+    return;
+  }
+
+  const listHtml = lowItems.map(i => `• <b>${i.name}</b>: 현재 잔량 <b>${fmt(i.current)}</b> (설정 기준: ${fmt(i.threshold)} 이하)`).join('<br>');
+  const due = isIntervalDue();
+  const hasEmails = data.mailSettings.emails && data.mailSettings.emails.length > 0;
+
+  alertArea.innerHTML = `
+    <div class="alert-banner noprint">
+      <strong>⚠️ 냉매 잔량 부족 경고 (설정 기준 이하 도달)</strong>
+      <div style="margin-bottom:10px;line-height:1.5">${listHtml}</div>
+      <div class="actions">
+        ${hasEmails
+          ? `<button class="danger" onclick="triggerAlertEmail(false)">📧 지금 알림 메일 발송 (${data.mailSettings.emails.length}명)</button>`
+          : `<button class="secondary" onclick="tab='settings';render()">⚙️ 수신 메일 주소 설정하기</button>`}
+        <span class="muted" style="color:#7f1d1d">
+          설정 주기: ${intervalLabel(data.mailSettings.interval)} | 
+          마지막 발송: ${data.mailSettings.lastSent ? new Date(data.mailSettings.lastSent).toLocaleString('ko-KR') : '없음'}
+          ${due && hasEmails ? ' <b>(발송 주기 도래!)</b>' : ''}
+        </span>
+      </div>
+    </div>
+  `;
+
+  // EmailJS 키가 설정되어 있고 발송 주기가 도래한 경우 자동 발송 시도
+  if (due && hasEmails && data.mailSettings.emailjsServiceId && data.mailSettings.emailjsTemplateId && data.mailSettings.emailjsPublicKey) {
+    triggerAlertEmail(true);
+  }
+}
+
+async function triggerAlertEmail(isAuto = false) {
+  const lowItems = getLowStockItems();
+  if (!lowItems.length) {
+    if (!isAuto) alert('현재 설정 기준 이하인 냉매가 없습니다.');
+    return;
+  }
+  const emails = data.mailSettings.emails;
+  if (!emails.length) {
+    if (!isAuto) alert('설정 탭에서 수신 메일 주소를 먼저 등록해 주세요.');
+    return;
+  }
+
+  const subject = `[ChillerQA냉매관리시스템] 냉매 잔량 부족 알림 (${lowItems.map(i => i.name).join(', ')})`;
+  const bodyLines = [
+    '안녕하세요, ChillerQA 냉매관리시스템입니다.',
+    '아래 냉매의 현재 잔량이 설정된 최소 기준치 이하로 도달하여 알림을 발송합니다.',
+    '',
+    ...lowItems.map(i => `- ${i.name}: 현재 잔량 ${fmt(i.current)} (설정 기준: ${fmt(i.threshold)} 이하)`),
+    '',
+    `발송 주기 설정: ${intervalLabel(data.mailSettings.interval)}`,
+    `확인 일시: ${new Date().toLocaleString('ko-KR')}`
+  ];
+  const bodyText = bodyLines.join('
+');
+
+  const { emailjsServiceId, emailjsTemplateId, emailjsPublicKey } = data.mailSettings;
+
+  // EmailJS 연동이 설정된 경우 API로 직접 백그라운드 발송
+  if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey) {
+    try {
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: emailjsServiceId,
+          template_id: emailjsTemplateId,
+          user_id: emailjsPublicKey,
+          template_params: {
+            to_email: emails.join(','),
+            subject: subject,
+            message: bodyText
+          }
+        })
+      });
+      if (res.ok) {
+        data.mailSettings.lastSent = new Date().toISOString();
+        save();
+        if (!isAuto) alert(`등록된 ${emails.length}개의 메일 주소로 알림 메일이 자동 발송되었습니다.`);
+        return;
+      } else {
+        throw new Error('EmailJS 응답 오류');
+      }
+    } catch (e) {
+      if (!isAuto) alert('자동 메일 API 발송에 실패하여 기본 메일 앱(mailto)으로 전환합니다.');
+    }
+  }
+
+  if (isAuto) return; // 자동 모드에서 API 키가 없으면 팝업 띄우지 않음
+
+  // 기본 메일 클라이언트(mailto) 실행
+  data.mailSettings.lastSent = new Date().toISOString();
+  save();
+  const mailtoUrl = `mailto:${encodeURIComponent(emails.join(','))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
+  window.location.href = mailtoUrl;
+}
+
+function nav() {
+  let arr = [
+    ['dashboard', '대시보드'],
+    ['cylinders', '용기/재고'],
+    ['entry', '입고 등록'],
+    ['use', '사용 등록'],
+    ['recovery', '회수 등록'],
+    ['scan', 'QR 스캔'],
+    ['monthly', '월별 통계'],
+    ['labels', 'QR 라벨'],
+    ['history', '이력'],
+    ['settings', '⚙️ 냉매·알림 설정']
+  ];
+  document.getElementById('nav').innerHTML = arr.map(([k, t]) =>
+    `<button class="${tab === k ? 'active' : ''}" onclick="tab='${k}';render()">${t}</button>`
+  ).join('');
+}
+
+function stats() {
+  let t = totals();
+  document.getElementById('stats').innerHTML = `
+    <div class="card stat"><small>현재 보유량</small><strong>${fmt(t.stock)}</strong></div>
+    <div class="card stat"><small>누적 입고량</small><strong>${fmt(t.incoming)}</strong></div>
+    <div class="card stat"><small>누적 소모량</small><strong>${fmt(t.used)}</strong></div>
+    <div class="card stat"><small>누적 회수량</small><strong>${fmt(t.recovered)}</strong></div>
+  `;
+}
+
+function cylinderSelect() {
+  return data.cylinders.map(c =>
+    `<option value="${c.id}">${c.code} · ${c.refrigerant} · 잔량 ${fmt(balance(c))}</option>`
+  ).join('');
+}
+
+function refrigerantSelect() {
+  if (!data.refrigerants.length) {
+    return `<option value="">등록된 냉매가 없습니다 (설정에서 추가)</option>`;
+  }
+  return data.refrigerants.map(r =>
+    `<option value="${r.name}">${r.name}</option>`
+  ).join('');
+}
+
+function viewDashboard() {
+  // 등록된 냉매 기준 + 혹시 용기에만 남아있는 냉매 통합 표시
+  const allNames = [...new Set([
+    ...data.refrigerants.map(r => r.name),
+    ...data.cylinders.map(c => c.refrigerant)
+  ])];
+
+  const rows = allNames.map(name => {
+    const cs = data.cylinders.filter(c => c.refrigerant === name);
+    const stock = cs.reduce((s, c) => s + balance(c), 0);
+    const refObj = data.refrigerants.find(r => r.name === name);
+    const threshold = refObj ? Number(refObj.threshold) : null;
+    const isLow = threshold !== null && stock <= threshold;
+
+    return `
+      <tr>
+        <td><b>${name}</b></td>
+        <td>${cs.length}개</td>
+        <td><b>${fmt(stock)}</b></td>
+        <td>${threshold !== null ? fmt(threshold) : '-'}</td>
+        <td>${threshold !== null
+          ? (isLow ? `<span class="pill low">부족 (알림대상)</span>` : `<span class="pill ok">정상</span>`)
+          : `<span class="muted">미설정</span>`}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="card">
+      <h3>냉매별 재고 및 임계치 현황</h3>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>냉매 종류</th><th>용기 수</th><th>총 잔량</th><th>알림 기준량</th><th>상태</th></tr>
+          </thead>
+          <tbody>${rows || '<tr><td colspan="5">등록된 냉매가 없습니다.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h3>최근 활동</h3>
+      ${recent(5)}
+    </div>
+  `;
+}
+
+function viewCylinders() {
+  return `
+    <div class="card">
+      <h3>용기 목록</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>QR ID</th><th>냉매</th><th>용기번호</th><th>입고</th><th>잔량</th><th>위치</th></tr></thead>
+          <tbody>
+            ${data.cylinders.map(c => `
+              <tr>
+                <td>${c.id}</td>
+                <td>${c.refrigerant}</td>
+                <td>${c.code}</td>
+                <td>${fmt(c.initial)}</td>
+                <td>${fmt(balance(c))}</td>
+                <td>${c.location || '-'}</td>
+              </tr>
+            `).join('') || '<tr><td colspan="6">용기를 등록하세요.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function cylinderForm(mode) {
+  return `
+    <div class="card">
+      <h3>${mode === 'in' ? '냉매 입고 등록' : (mode === 'use' ? '냉매 사용 등록' : '냉매 회수 등록')}</h3>
+      <form id="logform">
+        <div class="grid">
+          <div><label>용기 선택</label><select name="cylinder" required>${cylinderSelect()}</select></div>
+          <div><label>수량 (kg)</label><input name="qty" type="number" min="0.001" step="0.001" required placeholder="kg 입력"></div>
+          <div><label>날짜</label><input name="date" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div>
+          <div><label>작업자</label><input name="person" placeholder="작업자"></div>
+          <div><label>제품/시험기/작업</label><input name="work" placeholder="예: CH-001 시험"></div>
+          <div><label>메모</label><input name="note" placeholder="메모 (선택)"></div>
+        </div>
+        <button style="margin-top:14px">기록 저장</button>
+      </form>
+    </div>
+  `;
+}
+
+function viewEntry() {
+  if (!data.refrigerants.length) {
+    return `
+      <div class="card">
+        <h3>등록된 냉매 종류가 없습니다</h3>
+        <p class="muted">먼저 [냉매·알림 설정] 탭에서 사용할 냉매 종류를 추가해 주세요.</p>
+        <button onclick="tab='settings';render()">냉매 종류 추가하러 가기</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="card">
+      <h3>새 용기 입고 및 QR 등록</h3>
+      <form id="cform">
+        <div class="grid">
+          <div>
+            <label>냉매 종류 (설정된 목록에서 선택)</label>
+            <select name="refrigerant" required>${refrigerantSelect()}</select>
+          </div>
+          <div><label>용기 번호</label><input name="code" required placeholder="예: CY-2026-001"></div>
+          <div><label>입고량 (kg)</label><input name="qty" type="number" min="0.001" step="0.001" required></div>
+          <div><label>입고 날짜</label><input name="date" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div>
+          <div><label>보관 위치</label><input name="location" placeholder="예: 냉매창고 A"></div>
+          <div><label>담당자</label><input name="person" placeholder="입고 담당"></div>
+        </div>
+        <button style="margin-top:14px">입고 등록 및 QR 생성</button>
+      </form>
+    </div>
+    <div class="card">
+      <h3>입고 처리 안내</h3>
+      <p class="muted">냉매 종류 추가 및 삭제는 상단 <b>[⚙️ 냉매·알림 설정]</b> 탭에서 관리할 수 있습니다. 등록 시 고유 QR ID가 생성됩니다.</p>
+    </div>
+  `;
+}
+
+function viewUse() { return data.cylinders.length ? cylinderForm('use') : `<div class="card">먼저 용기를 입고 등록해 주세요.</div>`; }
+function viewRecovery() { return data.cylinders.length ? cylinderForm('recovery') : `<div class="card">먼저 용기를 입고 등록해 주세요.</div>`; }
+
+function viewScan() {
+  return `
+    <div class="card">
+      <h3>QR코드 스캔</h3>
+      <div class="actions noprint">
+        <button onclick="startScan()">카메라 실행</button>
+        <button class="secondary" onclick="stopScan()">카메라 중지</button>
+      </div>
+      <div id="reader"></div>
+      <div id="scanresult"></div>
+      <p class="muted">카메라 권한을 허용하세요. HTTPS 또는 localhost에서만 카메라가 동작할 수 있습니다.</p>
+    </div>
+  `;
+}
+
+function viewMonthly() {
+  let months = [...new Set(data.logs.map(x => x.date.slice(0, 7)).concat(data.cylinders.map(x => x.date.slice(0, 7))))].sort().reverse();
+  let rows = months.map(m => {
+    let ins = data.cylinders.filter(c => c.date.startsWith(m)).reduce((s, c) => s + c.initial, 0) + data.logs.filter(x => x.date.startsWith(m) && x.type === 'in').reduce((s, x) => s + x.qty, 0);
+    let use = data.logs.filter(x => x.date.startsWith(m) && x.type === 'use').reduce((s, x) => s + x.qty, 0);
+    let rec = data.logs.filter(x => x.date.startsWith(m) && x.type === 'recovery').reduce((s, x) => s + x.qty, 0);
+    return `<tr><td>${m}</td><td>${fmt(ins)}</td><td>${fmt(use)}</td><td>${fmt(rec)}</td></tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <h3>월별 입고·소모·회수량</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>월</th><th>입고량</th><th>소모량</th><th>회수량</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">기록이 없습니다.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function viewLabels() {
+  return `
+    <div class="card">
+      <h3>QR 라벨 인쇄</h3>
+      <p class="muted">등록된 용기별 QR코드가 생성됩니다. 인쇄 후 용기에 부착하세요.</p>
+      <button class="noprint" onclick="window.print()">라벨 인쇄</button>
+    </div>
+    <div id="qrprint">
+      ${data.cylinders.map(c => `<div class="labelbox"><strong>${c.refrigerant}</strong><div>${c.code}</div><div id="qr-${c.id}"></div><small>${c.id}</small></div>`).join('')}
+    </div>
+  `;
+}
+
+function recent(n) {
+  return `
+    <div class="scroll">
+      <table>
+        <thead><tr><th>날짜</th><th>종류</th><th>QR ID</th><th>수량</th><th>작업</th></tr></thead>
+        <tbody>
+          ${data.logs.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, n).map(x => `
+            <tr><td>${x.date}</td><td>${typeName(x.type)}</td><td>${x.cylinderId}</td><td>${fmt(x.qty)}</td><td>${x.work || '-'}</td></tr>
+          `).join('') || '<tr><td colspan="5">기록이 없습니다.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function typeName(t) { return t === 'in' ? '추가 입고' : t === 'use' ? '소모' : '회수'; }
+
+function viewHistory() {
+  return `
+    <div class="card">
+      <h3>전체 이력</h3>
+      <div class="actions noprint" style="margin-bottom:12px">
+        <button onclick="exportCSV()">CSV/Excel용 내보내기</button>
+        <button class="secondary" onclick="backup()">JSON 백업</button>
+        <label style="margin:0"><input style="width:auto" type="file" accept=".json" onchange="restore(event)"> 백업 복원</label>
+      </div>
+      ${recent(1000)}
+    </div>
+  `;
+}
+
+// 냉매 종류 관리 및 메일 알림 설정 화면
+function viewSettings() {
+  const refRows = data.refrigerants.map((r, idx) => {
+    const current = getStockByRefrigerant(r.name);
+    const isLow = current <= Number(r.threshold);
+    return `
+      <tr>
+        <td><b>${r.name}</b></td>
+        <td>${fmt(current)} ${isLow ? '<span class="pill low">기준이하</span>' : ''}</td>
+        <td>
+          <div class="actions">
+            <input type="number" min="0" step="0.1" value="${r.threshold}" style="width:110px;padding:6px 8px" onchange="updateThreshold(${idx}, this.value)">
+            <span class="muted">kg 이하</span>
+          </div>
+        </td>
+        <td>
+          <button class="danger" onclick="removeRefrigerant(${idx})">삭제</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const emailChips = data.mailSettings.emails.map((em, idx) => `
+    <div class="email-chip">
+      ${em} <span onclick="removeEmail(${idx})" title="삭제">×</span>
+    </div>
+  `).join('');
+
+  return `
+    <div class="card">
+      <h3>1. 냉매 종류 및 최소 잔량 기준 설정</h3>
+      <p class="muted">냉매 종류를 추가하거나 제거할 수 있으며, 각 냉매의 총 잔량이 설정값 이하로 떨어지면 알림 대상이 됩니다.</p>
+      
+      <form id="addRefForm" style="margin-bottom:16px">
+        <div class="grid">
+          <div>
+            <label>새 냉매 이름</label>
+            <input name="refName" required placeholder="예: R-404A, R-22, R-513A">
+          </div>
+          <div>
+            <label>알림 기준 최소 잔량 (kg)</label>
+            <input name="refThreshold" type="number" min="0" step="0.1" value="10" required>
+          </div>
+        </div>
+        <button style="margin-top:10px">+ 냉매 종류 추가</button>
+      </form>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>냉매 종류</th><th>현재 총 잔량</th><th>알림 기준치 (이하 시 알림)</th><th>관리</th></tr></thead>
+          <tbody>${refRows || '<tr><td colspan="4">등록된 냉매가 없습니다. 위에서 추가해 주세요.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>2. 잔량 부족 알림 메일 설정 (최대 10개)</h3>
+      <p class="muted">설정된 기준치 이하로 잔량이 떨어졌을 때 알림을 받을 메일 주소와 발송 주기를 설정합니다. (${data.mailSettings.emails.length}/10개 등록됨)</p>
+      
+      <form id="addEmailForm" style="margin-bottom:12px">
+        <div class="actions">
+          <input type="email" name="email" placeholder="example@company.com" required style="max-width:320px" ${data.mailSettings.emails.length >= 10 ? 'disabled' : ''}>
+          <button type="submit" ${data.mailSettings.emails.length >= 10 ? 'disabled' : ''}>+ 메일 추가</button>
+        </div>
+      </form>
+
+      <div style="margin-bottom:16px">
+        ${emailChips || '<span class="muted">등록된 수신 메일 주소가 없습니다.</span>'}
+      </div>
+
+      <div class="grid">
+        <div>
+          <label>메일 송부 간격 (주기)</label>
+          <select onchange="updateMailInterval(this.value)">
+            <option value="daily" ${data.mailSettings.interval === 'daily' ? 'selected' : ''}>일 단위 (매일 1회)</option>
+            <option value="weekly" ${data.mailSettings.interval === 'weekly' ? 'selected' : ''}>주 단위 (매주 1회)</option>
+            <option value="monthly" ${data.mailSettings.interval === 'monthly' ? 'selected' : ''}>월 단위 (매월 1회)</option>
+          </select>
+        </div>
+        <div>
+          <label>수동 즉시 발송 및 테스트</label>
+          <div class="actions" style="margin-top:4px">
+            <button type="button" class="warning" onclick="triggerAlertEmail(false)">📧 현재 부족 항목 메일 발송</button>
+            <button type="button" class="secondary" onclick="resetLastSent()">발송 주기 초기화</button>
+          </div>
+        </div>
+      </div>
+
+      <details style="margin-top:18px;border-top:1px solid #e2e8f0;padding-top:12px">
+        <summary style="cursor:pointer;font-weight:600;color:#123e65;font-size:14px">⚙️ 완전 자동 백그라운드 메일 발송 연동 (선택 사항 - EmailJS)</summary>
+        <p class="muted" style="margin-top:8px">
+          별도 백엔드 서버 없이 브라우저에서 자동으로 메일을 발송하려면 무료 <a href="https://www.emailjs.com/" target="_blank">EmailJS</a> 계정의 키를 입력하세요. 미입력 시 기본 메일 앱(Outlook 등)으로 메일 작성이 실행됩니다.
+        </p>
+        <div class="grid">
+          <div><label>Service ID</label><input value="${data.mailSettings.emailjsServiceId || ''}" onchange="updateEmailJS('emailjsServiceId', this.value)" placeholder="service_xxxxxxx"></div>
+          <div><label>Template ID</label><input value="${data.mailSettings.emailjsTemplateId || ''}" onchange="updateEmailJS('emailjsTemplateId', this.value)" placeholder="template_xxxxxxx"></div>
+          <div><label>Public Key</label><input value="${data.mailSettings.emailjsPublicKey || ''}" onchange="updateEmailJS('emailjsPublicKey', this.value)" placeholder="Public Key 입력"></div>
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+// 설정 조작 함수들
+function updateThreshold(idx, val) {
+  data.refrigerants[idx].threshold = Math.max(0, Number(val) || 0);
+  save();
+}
+
+function removeRefrigerant(idx) {
+  const target = data.refrigerants[idx];
+  if (!confirm(`'${target.name}' 냉매 종류를 목록에서 삭제하시겠습니까?
+(기존에 등록된 용기 및 이력 데이터는 유지됩니다.)`)) return;
+  data.refrigerants.splice(idx, 1);
+  save();
+}
+
+function removeEmail(idx) {
+  data.mailSettings.emails.splice(idx, 1);
+  save();
+}
+
+function updateMailInterval(val) {
+  data.mailSettings.interval = val;
+  save();
+}
+
+function updateEmailJS(field, val) {
+  data.mailSettings[field] = val.trim();
+  save(true);
+}
+
+function resetLastSent() {
+  data.mailSettings.lastSent = null;
+  save();
+  alert('마지막 발송 기록이 초기화되었습니다. 다음 조건 충족 시 즉시 발송 주기가 도래합니다.');
+}
+
+function render() {
+  nav();
+  stats();
+  checkAlerts();
+  let v = document.getElementById('view');
+  let content = {
+    dashboard: viewDashboard,
+    cylinders: viewCylinders,
+    entry: viewEntry,
+    use: viewUse,
+    recovery: viewRecovery,
+    scan: viewScan,
+    monthly: viewMonthly,
+    labels: viewLabels,
+    history: viewHistory,
+    settings: viewSettings
+  };
+  v.innerHTML = content[tab]();
+  if (tab === 'labels') {
+    data.cylinders.forEach(c => {
+      let el = document.getElementById('qr-' + c.id);
+      if (el && window.QRCode) new QRCode(el, { text: c.id, width: 100, height: 100 });
+    });
+  }
+  bindForms();
+}
+
+function bindForms() {
+  let cf = document.getElementById('cform');
+  if (cf) {
+    cf.onsubmit = e => {
+      e.preventDefault();
+      let f = new FormData(cf), id = 'RF-' + String(Date.now()).slice(-8);
+      data.cylinders.push({
+        id,
+        refrigerant: f.get('refrigerant').trim(),
+        code: f.get('code').trim(),
+        initial: Number(f.get('qty')),
+        date: f.get('date'),
+        location: f.get('location'),
+        person: f.get('person')
+      });
+      data.logs.push({
+        type: 'in',
+        cylinderId: id,
+        qty: Number(f.get('qty')),
+        date: f.get('date'),
+        person: f.get('person'),
+        work: '신규 입고',
+        note: f.get('location')
+      });
+      tab = 'labels';
+      save();
+      alert('입고 등록 완료! QR 라벨 탭에서 출력할 수 있습니다.');
+    };
+  }
+
+  let lf = document.getElementById('logform');
+  if (lf) {
+    lf.onsubmit = e => {
+      e.preventDefault();
+      let f = new FormData(lf), id = f.get('cylinder'), qty = Number(f.get('qty')), c = data.cylinders.find(c => c.id === id), type = tab === 'use' ? 'use' : 'recovery';
+      if (type === 'use' && qty > balance(c)) {
+        alert('입력량이 현재 잔량보다 큽니다.');
+        return;
+      }
+      data.logs.push({
+        type,
+        cylinderId: id,
+        qty,
+        date: f.get('date'),
+        person: f.get('person'),
+        work: f.get('work'),
+        note: f.get('note')
+      });
+      save();
+      alert('기록이 저장되었습니다.');
+    };
+  }
+
+  let arf = document.getElementById('addRefForm');
+  if (arf) {
+    arf.onsubmit = e => {
+      e.preventDefault();
+      let f = new FormData(arf);
+      let name = f.get('refName').trim();
+      let threshold = Math.max(0, Number(f.get('refThreshold')) || 0);
+      if (!name) return;
+      if (data.refrigerants.some(r => r.name.toLowerCase() === name.toLowerCase())) {
+        alert('이미 등록된 냉매 종류입니다.');
+        return;
+      }
+      data.refrigerants.push({ name, threshold });
+      save();
+    };
+  }
+
+  let aef = document.getElementById('addEmailForm');
+  if (aef) {
+    aef.onsubmit = e => {
+      e.preventDefault();
+      if (data.mailSettings.emails.length >= 10) {
+        alert('메일 주소는 최대 10개까지만 등록할 수 있습니다.');
+        return;
+      }
+      let f = new FormData(aef);
+      let email = f.get('email').trim();
+      if (!email) return;
+      if (data.mailSettings.emails.includes(email)) {
+        alert('이미 등록된 메일 주소입니다.');
+        return;
+      }
+      data.mailSettings.emails.push(email);
+      save();
+    };
+  }
+}
+
+async function startScan() {
+  if (!window.Html5Qrcode) { alert('QR 스캔 라이브러리 로딩 실패. 인터넷 연결 확인'); return; }
+  scanner = new Html5Qrcode('reader');
+  try {
+    await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: 230 }, decoded => {
+      stopScan();
+      let c = data.cylinders.find(c => c.id === decoded);
+      document.getElementById('scanresult').innerHTML = c
+        ? `<div class="card"><h3>스캔 결과</h3><p><b>${c.refrigerant}</b> / ${c.code}</p><p>현재 잔량: <b>${fmt(balance(c))}</b></p><button onclick="tab='use';render()">사용 등록</button> <button class="secondary" onclick="tab='recovery';render()">회수 등록</button></div>`
+        : `<p>등록되지 않은 QR: ${decoded}</p>`;
+    });
+  } catch (e) {
+    alert('카메라 실행 실패: ' + e);
+  }
+}
+
+async function stopScan() {
+  if (scanner) {
+    try { await scanner.stop(); scanner.clear(); } catch (e) {}
+    scanner = null;
+  }
+}
+
+function exportCSV() {
+  let lines = [['유형', '날짜', 'QR ID', '냉매', '용기번호', '수량kg', '작업자', '작업', '메모'].join(',')];
+  data.logs.forEach(x => {
+    let c = data.cylinders.find(c => c.id === x.cylinderId);
+    lines.push([typeName(x.type), x.date, x.cylinderId, c?.refrigerant || '', c?.code || '', x.qty, x.person || '', x.work || '', x.note || ''].map(v => '"' + String(v).replaceAll('"', '""') + '"').join(','));
+  });
+  data.cylinders.forEach(c => lines.push(['용기등록', c.date, c.id, c.refrigerant, c.code, c.initial, c.person || '', '신규 입고', c.location || ''].map(v => '"' + String(v).replaceAll('"', '""') + '"').join(',')));
+  let blob = new Blob(['﻿' + lines.join('
+')], { type: 'text/csv;charset=utf-8' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ChillerQA_냉매관리_이력.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function backup() {
+  let a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  a.download = 'ChillerQA_냉매관리_백업.json';
+  a.click();
+}
+
+function restore(e) {
+  let file = e.target.files[0];
+  if (!file) return;
+  let r = new FileReader();
+  r.onload = () => {
+    try {
+      data = JSON.parse(r.result);
+      save();
+      alert('복원 완료');
+    } catch (err) {
+      alert('파일 형식 오류');
+    }
+  };
+  r.readAsText(file);
+}
+
+render();
+</script>
+</body>
+</html>
