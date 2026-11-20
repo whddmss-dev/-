@@ -1,58 +1,1041 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>냉매 QR 재고관리</title>
-<style>
-*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:#f3f6fa;color:#172033}
-header{background:#123e65;color:white;padding:20px 16px}header h1{margin:0;font-size:22px}header p{margin:7px 0 0;color:#c9d9e8;font-size:13px}
-main{max-width:1000px;margin:auto;padding:16px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
-.card{background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px #0000000c;margin-bottom:14px}.stat small{color:#68758a}.stat strong{display:block;font-size:24px;margin-top:6px}
-nav{display:flex;overflow:auto;gap:8px;margin:14px 0}nav button{white-space:nowrap;border:0;padding:10px 13px;border-radius:10px;background:#dce6f0;color:#123e65;font-weight:700}nav button.active{background:#123e65;color:white}
-button{cursor:pointer;border:0;border-radius:9px;padding:10px 13px;background:#1565a8;color:white;font-weight:650}button.secondary{background:#e7edf4;color:#183b59}button.danger{background:#b83232}input,select{width:100%;padding:11px;border:1px solid #ccd6e1;border-radius:9px;font-size:15px;background:white}label{display:block;font-size:13px;color:#46566a;margin:10px 0 5px}form .grid{gap:10px}.hide{display:none!important}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #e8edf2}th{color:#52647a;font-size:12px}td{word-break:break-word}.scroll{overflow:auto}.pill{font-size:12px;padding:4px 8px;border-radius:20px;background:#e9f4ff;color:#17578b}.muted{color:#718096;font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:8px}.notice{background:#fff7df;border:1px solid #f1d58b;border-radius:12px;padding:12px;color:#745314;font-size:13px}
-#reader{width:100%;max-width:480px;margin:auto}#qrprint{display:flex;flex-wrap:wrap;gap:12px}.labelbox{border:1px dashed #aaa;padding:12px;width:180px;text-align:center;background:white}
-@media(max-width:650px){.grid,.stats{grid-template-columns:1fr}main{padding:12px}.card{padding:13px}header{padding:16px}}
-@media print{header,nav,.noprint,.notice{display:none!important}body{background:white}main{padding:0}.labelbox{break-inside:avoid}}
-</style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://unpkg.com/html5-qrcode"></script>
-</head><body>
-<header><h1>♻️ 냉매 QR 재고관리</h1><p>입고 · 사용 · 회수 · 월별 재고 및 소모량</p></header>
-<main>
-<div class="notice">현재 버전은 이 브라우저에 데이터가 저장되는 MVP입니다. 공유 서버 연결 전에는 다른 휴대폰/PC와 데이터가 공유되지 않습니다. 브라우저 데이터 삭제 시 기록이 사라질 수 있으니 CSV 백업을 권장합니다.</div>
-<div class="stats" id="stats"></div>
-<nav class="noprint" id="nav"></nav>
-<section id="view"></section>
-</main>
-<script>
-const KEY='refrigerant_qr_inventory_v1';
-let data=JSON.parse(localStorage.getItem(KEY)||'{"cylinders":[],"logs":[]}');
-let tab='dashboard', scanner=null;
-function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
-function fmt(n){return (Number(n)||0).toLocaleString('ko-KR',{maximumFractionDigits:3})+' kg'}
-function balance(c){return c.initial+data.logs.filter(x=>x.cylinderId===c.id).reduce((s,x)=>s+(x.type==='in'?x.qty:x.type==='recovery'?x.qty:-x.qty),0)}
-function totals(){let incoming=data.cylinders.reduce((s,c)=>s+c.initial,0)+data.logs.filter(x=>x.type==='in').reduce((s,x)=>s+x.qty,0);let used=data.logs.filter(x=>x.type==='use').reduce((s,x)=>s+x.qty,0);let recovered=data.logs.filter(x=>x.type==='recovery').reduce((s,x)=>s+x.qty,0);let stock=data.cylinders.reduce((s,c)=>s+balance(c),0);return {incoming,used,recovered,stock}}
-function nav(){let arr=[['dashboard','대시보드'],['cylinders','용기/재고'],['entry','입고 등록'],['use','사용 등록'],['recovery','회수 등록'],['scan','QR 스캔'],['monthly','월별 통계'],['labels','QR 라벨'],['history','이력']];document.getElementById('nav').innerHTML=arr.map(([k,t])=>`<button class="${tab===k?'active':''}" onclick="tab='${k}';render()">${t}</button>`).join('')}
-function stats(){let t=totals();document.getElementById('stats').innerHTML=`<div class="card stat"><small>현재 보유량</small><strong>${fmt(t.stock)}</strong></div><div class="card stat"><small>누적 입고량</small><strong>${fmt(t.incoming)}</strong></div><div class="card stat"><small>누적 소모량</small><strong>${fmt(t.used)}</strong></div><div class="card stat"><small>누적 회수량</small><strong>${fmt(t.recovered)}</strong></div>`}
-function cylinderSelect(){return data.cylinders.map(c=>`<option value="${c.id}">${c.code} · ${c.refrigerant} · 잔량 ${fmt(balance(c))}</option>`).join('')}
-function viewDashboard(){let t=totals();return `<div class="card"><h3>재고 요약</h3><div class="scroll"><table><thead><tr><th>냉매</th><th>용기 수</th><th>총 잔량</th></tr></thead><tbody>${[...new Set(data.cylinders.map(c=>c.refrigerant))].map(r=>{let cs=data.cylinders.filter(c=>c.refrigerant===r);return `<tr><td>${r}</td><td>${cs.length}</td><td>${fmt(cs.reduce((s,c)=>s+balance(c),0))}</td></tr>`}).join('')||'<tr><td colspan="3">등록된 용기가 없습니다.</td></tr>'}</tbody></table></div></div><div class="card"><h3>최근 활동</h3>${recent(5)}</div>`}
-function viewCylinders(){return `<div class="card"><h3>용기 목록</h3><div class="scroll"><table><thead><tr><th>QR ID</th><th>냉매</th><th>용기번호</th><th>입고</th><th>잔량</th><th>위치</th></tr></thead><tbody>${data.cylinders.map(c=>`<tr><td>${c.id}</td><td>${c.refrigerant}</td><td>${c.code}</td><td>${fmt(c.initial)}</td><td>${fmt(balance(c))}</td><td>${c.location||'-'}</td></tr>`).join('')||'<tr><td colspan="6">용기를 등록하세요.</td></tr>'}</tbody></table></div></div>`}
-function cylinderForm(mode){return `<div class="card"><h3>${mode==='in'?'냉매 입고 등록':'냉매 사용/회수 등록'}</h3><form id="logform"><div class="grid"><div><label>용기 선택</label><select name="cylinder" required>${cylinderSelect()}</select></div><div><label>수량 (kg)</label><input name="qty" type="number" min="0.001" step="0.001" required placeholder="kg 입력"></div><div><label>날짜</label><input name="date" type="date" value="${new Date().toISOString().slice(0,10)}" required></div><div><label>작업자</label><input name="person" placeholder="작업자"></div><div><label>제품/시험기/작업</label><input name="work" placeholder="예: CH-001 시험"></div><div><label>메모</label><input name="note" placeholder="메모 (선택)"></div></div><button style="margin-top:14px">${mode==='in'?'입고 기록 저장':'기록 저장'}</button></form></div>`}
-function viewEntry(){return `<div class="card"><h3>새 용기 입고 및 QR 등록</h3><form id="cform"><div class="grid"><div><label>냉매 종류</label><input name="refrigerant" required placeholder="예: R-1234ze"></div><div><label>용기 번호</label><input name="code" required placeholder="예: CY-2026-001"></div><div><label>입고량 (kg)</label><input name="qty" type="number" min="0.001" step="0.001" required></div><div><label>입고 날짜</label><input name="date" type="date" value="${new Date().toISOString().slice(0,10)}" required></div><div><label>보관 위치</label><input name="location" placeholder="예: 냉매창고 A"></div><div><label>담당자</label><input name="person" placeholder="입고 담당"></div></div><button style="margin-top:14px">입고 등록 및 QR 생성</button></form></div><div class="card"><h3>입고 처리 안내</h3><p class="muted">등록 시 고유 QR ID를 생성합니다. QR은 QR 라벨 탭에서 출력할 수 있습니다.</p></div>`}
-function viewUse(){return data.cylinders.length?cylinderForm('use'):`<div class="card">먼저 용기를 입고 등록해 주세요.</div>`}
-function viewRecovery(){return data.cylinders.length?cylinderForm('recovery'):`<div class="card">먼저 용기를 입고 등록해 주세요.</div>`}
-function viewScan(){return `<div class="card"><h3>QR코드 스캔</h3><div class="actions noprint"><button onclick="startScan()">카메라 실행</button><button class="secondary" onclick="stopScan()">카메라 중지</button></div><div id="reader"></div><div id="scanresult"></div><p class="muted">카메라 권한을 허용하세요. HTTPS 또는 localhost에서만 카메라가 동작할 수 있습니다.</p></div>`}
-function viewMonthly(){let months=[...new Set(data.logs.map(x=>x.date.slice(0,7)).concat(data.cylinders.map(x=>x.date.slice(0,7))))].sort().reverse();let rows=months.map(m=>{let ins=data.cylinders.filter(c=>c.date.startsWith(m)).reduce((s,c)=>s+c.initial,0)+data.logs.filter(x=>x.date.startsWith(m)&&x.type==='in').reduce((s,x)=>s+x.qty,0);let use=data.logs.filter(x=>x.date.startsWith(m)&&x.type==='use').reduce((s,x)=>s+x.qty,0);let rec=data.logs.filter(x=>x.date.startsWith(m)&&x.type==='recovery').reduce((s,x)=>s+x.qty,0);return `<tr><td>${m}</td><td>${fmt(ins)}</td><td>${fmt(use)}</td><td>${fmt(rec)}</td></tr>`}).join('');return `<div class="card"><h3>월별 입고·소모·회수량</h3><div class="scroll"><table><thead><tr><th>월</th><th>입고량</th><th>소모량</th><th>회수량</th></tr></thead><tbody>${rows||'<tr><td colspan="4">기록이 없습니다.</td></tr>'}</tbody></table></div><p class="muted">월별 입고는 신규 용기 등록 및 추가 입고 기록을 합산합니다.</p></div>`}
-function viewLabels(){return `<div class="card"><h3>QR 라벨 인쇄</h3><p class="muted">등록된 용기별 QR코드가 생성됩니다. 인쇄 후 용기에 부착하세요.</p><button class="noprint" onclick="window.print()">라벨 인쇄</button></div><div id="qrprint">${data.cylinders.map(c=>`<div class="labelbox"><strong>${c.refrigerant}</strong><div>${c.code}</div><div id="qr-${c.id}"></div><small>${c.id}</small></div>`).join('')}</div>`}
-function recent(n){return `<div class="scroll"><table><thead><tr><th>날짜</th><th>종류</th><th>QR ID</th><th>수량</th><th>작업</th></tr></thead><tbody>${data.logs.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,n).map(x=>`<tr><td>${x.date}</td><td>${typeName(x.type)}</td><td>${x.cylinderId}</td><td>${fmt(x.qty)}</td><td>${x.work||'-'}</td></tr>`).join('')||'<tr><td colspan="5">기록이 없습니다.</td></tr>'}</tbody></table></div>`}
-function typeName(t){return t==='in'?'추가 입고':t==='use'?'소모':'회수'}
-function viewHistory(){return `<div class="card"><h3>전체 이력</h3><div class="actions noprint"><button onclick="exportCSV()">CSV/Excel용 내보내기</button><button class="secondary" onclick="backup()">JSON 백업</button><label style="margin:0"><input style="width:auto" type="file" accept=".json" onchange="restore(event)"> 백업 복원</label></div>${recent(1000)}</div>`}
-function render(){nav();stats();let v=document.getElementById('view');let content={dashboard:viewDashboard,cylinders:viewCylinders,entry:viewEntry,use:viewUse,recovery:viewRecovery,scan:viewScan,monthly:viewMonthly,labels:viewLabels,history:viewHistory};v.innerHTML=content[tab]();if(tab==='labels')data.cylinders.forEach(c=>{let el=document.getElementById('qr-'+c.id);if(el&&window.QRCode)new QRCode(el,{text:c.id,width:100,height:100})});bindForms()}
-function bindForms(){let cf=document.getElementById('cform');if(cf)cf.onsubmit=e=>{e.preventDefault();let f=new FormData(cf),id='RF-'+String(Date.now()).slice(-8);data.cylinders.push({id,refrigerant:f.get('refrigerant').trim(),code:f.get('code').trim(),initial:Number(f.get('qty')),date:f.get('date'),location:f.get('location'),person:f.get('person')});data.logs.push({type:'in',cylinderId:id,qty:Number(f.get('qty')),date:f.get('date'),person:f.get('person'),work:'신규 입고',note:f.get('location')});tab='labels';save();alert('입고 등록 완료! QR 라벨 탭에서 출력할 수 있습니다.')};let lf=document.getElementById('logform');if(lf)lf.onsubmit=e=>{e.preventDefault();let f=new FormData(lf),id=f.get('cylinder'),qty=Number(f.get('qty')),c=data.cylinders.find(c=>c.id===id),type=tab==='use'?'use':'recovery';if(type==='use'&&qty>balance(c)){alert('입력량이 현재 잔량보다 큽니다.');return}data.logs.push({type,cylinderId:id,qty,date:f.get('date'),person:f.get('person'),work:f.get('work'),note:f.get('note')});save();alert('기록이 저장되었습니다.')}}
-async function startScan(){if(!window.Html5Qrcode){alert('QR 스캔 라이브러리 로딩 실패. 인터넷 연결 확인');return}scanner=new Html5Qrcode('reader');try{await scanner.start({facingMode:'environment'},{fps:10,qrbox:230},decoded=>{stopScan();let c=data.cylinders.find(c=>c.id===decoded);document.getElementById('scanresult').innerHTML=c?`<div class="card"><h3>스캔 결과</h3><p><b>${c.refrigerant}</b> / ${c.code}</p><p>현재 잔량: <b>${fmt(balance(c))}</b></p><button onclick="tab='use';render()">사용 등록</button> <button class="secondary" onclick="tab='recovery';render()">회수 등록</button></div>`:`<p>등록되지 않은 QR: ${decoded}</p>`})}catch(e){alert('카메라 실행 실패: '+e)}}
-async function stopScan(){if(scanner){try{await scanner.stop();scanner.clear()}catch(e){}scanner=null}}
-function exportCSV(){let lines=[['유형','날짜','QR ID','냉매','용기번호','수량kg','작업자','작업','메모'].join(',')];data.logs.forEach(x=>{let c=data.cylinders.find(c=>c.id===x.cylinderId);lines.push([typeName(x.type),x.date,x.cylinderId,c?.refrigerant||'',c?.code||'',x.qty,x.person||'',x.work||'',x.note||''].map(v=>'"'+String(v).replaceAll('"','""')+'"').join(','))});data.cylinders.forEach(c=>lines.push(['용기등록',c.date,c.id,c.refrigerant,c.code,c.initial,c.person||'','신규 입고',c.location||''].map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')));let blob=new Blob(['\ufeff'+lines.join('\n'),{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='냉매관리_이력.csv';a.click();URL.revokeObjectURL(a.href)}
-function backup(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download='냉매관리_백업.json';a.click()}
-function restore(e){let file=e.target.files[0];if(!file)return;let r=new FileReader();r.onload=()=>{try{data=JSON.parse(r.result);save();alert('복원 완료')}catch(err){alert('파일 형식 오류')}};r.readAsText(file)}
-render();
-</script></body></html>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>스마트 냉매 재고 관리</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Noto Sans KR & Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- HTML5 QR Code Scanner -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <!-- QRCode.js Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans KR', 'Inter', sans-serif;
+            background-color: #f1f5f9;
+            -webkit-tap-highlight-color: transparent;
+            padding-bottom: 84px; /* 하단 내비게이션 여백 */
+        }
+        /* 카메라 스캐너 뷰 스타일 조정 */
+        #reader {
+            width: 100%;
+            border-radius: 1rem;
+            overflow: hidden;
+            border: none !important;
+        }
+        #reader video {
+            object-fit: cover;
+            border-radius: 1rem;
+        }
+        /* 인쇄 전용 스타일: QR 코드 영역만 깔끔하게 인쇄 */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #printable-qr-area, #printable-qr-area * {
+                visibility: visible;
+            }
+            #printable-qr-area {
+                position: fixed;
+                left: 50%;
+                top: 30%;
+                transform: translate(-50%, -50%);
+                border: 2px solid #000;
+                padding: 24px;
+                border-radius: 16px;
+                background: white;
+            }
+        }
+        /* 스크롤바 숨김 처리 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased select-none">
+
+    <!-- 상단 헤더 -->
+    <header class="sticky top-0 z-30 bg-slate-900 text-white shadow-md">
+        <div class="max-w-lg mx-auto px-4 py-3.5 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <div class="bg-sky-500 p-2 rounded-xl text-white shadow-sm">
+                    <i data-lucide="snowflake" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight leading-none">냉매 재고 관리</h1>
+                    <p class="text-[11px] text-slate-400 mt-0.5">QR 스마트 입출고 시스템</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="header-total-badge" class="bg-slate-800 border border-slate-700 text-sky-400 text-xs font-bold px-2.5 py-1 rounded-full">
+                    총 0통
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 토스트 알림 컨테이너 -->
+    <div id="toast-container" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2"></div>
+
+    <!-- 메인 컨텐츠 영역 -->
+    <main class="max-w-lg mx-auto p-4">
+
+        <!-- ========================================== -->
+        <!-- 탭 1: QR 스캔 및 입출고 (기본 화면)           -->
+        <!-- ========================================== -->
+        <section id="tab-scan" class="tab-content space-y-4">
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="font-bold text-base flex items-center gap-1.5 text-slate-800">
+                        <i data-lucide="scan-line" class="w-5 h-5 text-sky-600"></i>
+                        QR 코드 카메라 스캔
+                    </h2>
+                    <span id="camera-status" class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                        대기 중
+                    </span>
+                </div>
+
+                <!-- 카메라 뷰포트 -->
+                <div class="relative bg-slate-900 rounded-2xl overflow-hidden min-h-[260px] flex flex-col items-center justify-center">
+                    <div id="reader" class="w-full"></div>
+                    
+                    <!-- 카메라 시작 전 안내 플레이스홀더 -->
+                    <div id="camera-placeholder" class="text-center p-6 text-slate-300 flex flex-col items-center">
+                        <div class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center mb-3 text-sky-400">
+                            <i data-lucide="camera" class="w-7 h-7"></i>
+                        </div>
+                        <p class="text-sm font-medium text-white mb-1">카메라로 냉매통의 QR을 비춰주세요</p>
+                        <p class="text-xs text-slate-400 mb-4">HTTPS 환경(GitHub Pages)에서 카메라가 작동합니다</p>
+                        <button onclick="startScanner()" class="bg-sky-500 hover:bg-sky-600 active:scale-95 transition text-white font-bold py-2.5 px-5 rounded-xl text-sm flex items-center gap-2 shadow-lg shadow-sky-500/30">
+                            <i data-lucide="power" class="w-4 h-4"></i> 카메라 스캔 시작
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 카메라 제어 버튼 -->
+                <div id="camera-controls" class="hidden mt-3 flex gap-2">
+                    <button onclick="stopScanner()" class="flex-1 bg-rose-50 text-rose-600 border border-rose-200 font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 active:scale-95 transition">
+                        <i data-lucide="camera-off" class="w-4 h-4"></i> 카메라 중지
+                    </button>
+                </div>
+            </div>
+
+            <!-- 직접 코드 입력 및 빠른 테스트 스캔 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+                <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <i data-lucide="keyboard" class="w-4 h-4 text-slate-500"></i>
+                    코드 직접 입력 / 빠른 테스트 스캔
+                </h3>
+                <div class="flex gap-2">
+                    <input type="text" id="manual-code-input" placeholder="예: R-410A 또는 냉매코드 입력" 
+                        class="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-sky-500 uppercase">
+                    <button onclick="handleManualCodeSubmit()" class="bg-slate-800 hover:bg-slate-700 active:scale-95 transition text-white font-bold px-4 py-2.5 rounded-xl text-sm whitespace-nowrap">
+                        조회
+                    </button>
+                </div>
+                
+                <!-- 샘플 빠른 스캔 버튼 (미리보기 환경 테스트용) -->
+                <div class="pt-1">
+                    <p class="text-[11px] text-slate-400 mb-2">터치하여 QR 스캔 시뮬레이션 (테스트용):</p>
+                    <div id="quick-test-buttons" class="flex flex-wrap gap-1.5">
+                        <!-- JS로 동적 생성됨 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 최근 입출고 내역 요약 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                        <i data-lucide="history" class="w-4 h-4 text-sky-600"></i>
+                        최근 입출고 히스토리
+                    </h3>
+                    <button onclick="switchTab('inventory')" class="text-xs text-sky-600 font-semibold">전체보기</button>
+                </div>
+                <div id="scan-recent-logs" class="space-y-2.5">
+                    <!-- JS 렌더링 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- 탭 2: 재고 현황 대시보드                     -->
+        <!-- ========================================== -->
+        <section id="tab-inventory" class="tab-content hidden space-y-4">
+            <!-- 요약 카드 그리드 -->
+            <div class="grid grid-cols-3 gap-2.5">
+                <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
+                    <p class="text-xs text-slate-500 font-medium">총 보유 수량</p>
+                    <p id="stat-total-qty" class="text-xl font-black text-slate-800 mt-1">0<span class="text-xs font-normal ml-0.5">통</span></p>
+                </div>
+                <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
+                    <p class="text-xs text-slate-500 font-medium">총 냉매 중량</p>
+                    <p id="stat-total-weight" class="text-xl font-black text-sky-600 mt-1">0<span class="text-xs font-normal ml-0.5">kg</span></p>
+                </div>
+                <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
+                    <p class="text-xs text-slate-500 font-medium">재고 부족</p>
+                    <p id="stat-low-stock" class="text-xl font-black text-rose-500 mt-1">0<span class="text-xs font-normal ml-0.5">건</span></p>
+                </div>
+            </div>
+
+            <!-- 검색 및 신규 냉매 추가 버튼 -->
+            <div class="flex gap-2">
+                <div class="relative flex-1">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" id="inventory-search" oninput="renderInventory()" placeholder="냉매명, 규격, 보관위치 검색..." 
+                        class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-sky-500">
+                </div>
+                <button onclick="openAddModal()" class="bg-sky-600 hover:bg-sky-700 active:scale-95 transition text-white font-bold px-3.5 py-2.5 rounded-xl text-sm flex items-center gap-1 whitespace-nowrap shadow-sm">
+                    <i data-lucide="plus" class="w-4 h-4"></i> 품목 추가
+                </button>
+            </div>
+
+            <!-- 냉매 재고 카드 리스트 -->
+            <div id="inventory-list" class="space-y-3">
+                <!-- JS 렌더링 -->
+            </div>
+
+            <!-- 전체 입출고 로그 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 mt-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                        <i data-lucide="clipboard-list" class="w-4 h-4 text-sky-600"></i>
+                        전체 입출고 기록 (최근 30건)
+                    </h3>
+                    <button onclick="clearLogsConfirm()" class="text-xs text-slate-400 hover:text-rose-500">기록 초기화</button>
+                </div>
+                <div id="full-history-logs" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    <!-- JS 렌더링 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- 탭 3: QR 코드 생성 및 라벨 출력              -->
+        <!-- ========================================== -->
+        <section id="tab-qrgen" class="tab-content hidden space-y-4">
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-4">
+                <div>
+                    <h2 class="font-bold text-base text-slate-800 flex items-center gap-1.5">
+                        <i data-lucide="qr-code" class="w-5 h-5 text-sky-600"></i>
+                        냉매 부착용 QR 라벨 생성
+                    </h2>
+                    <p class="text-xs text-slate-500 mt-1">냉매 종류를 선택하거나 고유 시리얼 코드를 입력해 스티커로 인쇄하세요.</p>
+                </div>
+
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">등록된 냉매 선택</label>
+                        <select id="qr-select-item" onchange="onQrSelectChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-sky-500">
+                            <!-- JS 옵션 생성 -->
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">QR 코드 데이터 (직접 수정 가능)</label>
+                        <input type="text" id="qr-custom-code" oninput="generateQRCode()" placeholder="예: R-410A" 
+                            class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-mono uppercase focus:outline-none focus:border-sky-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">라벨 하단 표기 메모 (선택)</label>
+                        <input type="text" id="qr-label-subtext" oninput="generateQRCode()" placeholder="예: 11.3kg / 창고 A구역" 
+                            class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-sky-500">
+                    </div>
+                </div>
+
+                <!-- 인쇄 가능한 QR 미리보기 카드 -->
+                <div class="pt-2 flex flex-col items-center">
+                    <div id="printable-qr-area" class="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-6 flex flex-col items-center justify-center w-64 shadow-sm">
+                        <span class="text-[10px] font-bold tracking-widest text-sky-600 uppercase mb-2">REFRIGERANT INVENTORY</span>
+                        <div id="qrcode-canvas" class="p-2 bg-white rounded-lg"></div>
+                        <p id="qr-display-title" class="text-lg font-black text-slate-900 mt-3 tracking-tight">R-410A</p>
+                        <p id="qr-display-sub" class="text-xs text-slate-500 mt-0.5">11.3kg / 표준 냉매</p>
+                    </div>
+                </div>
+
+                <!-- 액션 버튼 -->
+                <div class="grid grid-cols-2 gap-2.5 pt-2">
+                    <button onclick="downloadQRImage()" class="bg-slate-800 hover:bg-slate-700 active:scale-95 transition text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5">
+                        <i data-lucide="download" class="w-4 h-4"></i> 이미지 저장
+                    </button>
+                    <button onclick="window.print()" class="bg-sky-600 hover:bg-sky-700 active:scale-95 transition text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-sm">
+                        <i data-lucide="printer" class="w-4 h-4"></i> 라벨 인쇄
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- 탭 4: 데이터 백업 및 GitHub 배포 가이드      -->
+        <!-- ========================================== -->
+        <section id="tab-settings" class="tab-content hidden space-y-4">
+            <!-- 엑셀/데이터 백업 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+                <h2 class="font-bold text-base text-slate-800 flex items-center gap-1.5">
+                    <i data-lucide="database" class="w-5 h-5 text-sky-600"></i>
+                    데이터 백업 및 엑셀 내보내기
+                </h2>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    현재 데이터는 스마트폰 브라우저(LocalStorage)에 안전하게 저장됩니다. 다른 기기와 공유하거나 정기 백업을 위해 파일을 내보낼 수 있습니다.
+                </p>
+
+                <div class="grid grid-cols-1 gap-2.5 pt-1">
+                    <button onclick="exportCSV()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition text-white font-bold py-3 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm">
+                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> 엑셀(CSV) 파일로 재고 다운로드
+                    </button>
+                    
+                    <button onclick="exportJSON()" class="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition text-white font-bold py-3 px-4 rounded-xl text-sm flex items-center justify-center gap-2">
+                        <i data-lucide="download-cloud" class="w-4 h-4"></i> 전체 백업 파일(JSON) 저장
+                    </button>
+
+                    <label class="w-full bg-slate-100 hover:bg-slate-200 active:scale-95 transition text-slate-700 border border-slate-300 font-bold py-3 px-4 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer">
+                        <i data-lucide="upload-cloud" class="w-4 h-4"></i> 백업 파일(JSON) 불러오기
+                        <input type="file" id="import-json-input" accept=".json" onchange="importJSON(event)" class="hidden">
+                    </label>
+                </div>
+            </div>
+
+            <!-- GitHub Pages 무료 서버 호스팅 가이드 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="font-bold text-base text-slate-800 flex items-center gap-1.5">
+                        <i data-lucide="github" class="w-5 h-5 text-slate-900"></i>
+                        GitHub Pages 배포 가이드 (무료)
+                    </h2>
+                    <span class="text-[11px] font-bold bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">HTTPS 지원</span>
+                </div>
+                <p class="text-xs text-slate-600 leading-relaxed">
+                    별도의 서버 비용 없이 GitHub에 이 HTML 파일 하나만 올리면 전용 모바일 앱 주소(`https://아이디.github.io/저장소명`)가 생성되며, 카메라 QR 스캔이 완벽히 작동합니다.
+                </p>
+                <ol class="text-xs text-slate-600 space-y-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 list-decimal list-inside">
+                    <li><strong class="text-slate-800">GitHub 로그인</strong> 후 우측 상단 <code class="bg-white px-1.5 py-0.5 rounded border">+</code> → <strong class="text-slate-800">New repository</strong>를 클릭합니다.</li>
+                    <li>저장소 이름(예: <code class="bg-white px-1.5 py-0.5 rounded border">gas-manager</code>)을 입력하고 <strong>Public</strong>으로 생성합니다.</li>
+                    <li><strong>uploading an existing file</strong>을 눌러 이 코드를 저장한 <code class="bg-white px-1.5 py-0.5 rounded border">index.html</code> 파일을 업로드합니다.</li>
+                    <li>저장소 상단 <strong>Settings</strong> → 좌측 메뉴 <strong>Pages</strong>로 이동합니다.</li>
+                    <li>Branch를 <strong>main</strong>으로 선택 후 <strong>Save</strong>를 누르면 1분 뒤 모바일 접속 링크가 발급됩니다!</li>
+                </ol>
+            </div>
+
+            <!-- 샘플 데이터 초기화 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-rose-100 flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold text-rose-600">초기 샘플 데이터로 복원</h3>
+                    <p class="text-xs text-slate-400">모든 수정 내역을 지우고 기본 냉매 데이터로 되돌립니다.</p>
+                </div>
+                <button onclick="resetToDefaultData()" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-2 rounded-xl text-xs border border-rose-200 whitespace-nowrap">
+                    초기화
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- ========================================== -->
+    <!-- 하단 고정 내비게이션 바                       -->
+    <!-- ========================================== -->
+    <nav class="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+        <div class="max-w-lg mx-auto grid grid-cols-4 h-16">
+            <button onclick="switchTab('scan')" id="nav-scan" class="nav-btn flex flex-col items-center justify-center gap-1 text-sky-600 font-bold">
+                <i data-lucide="scan-line" class="w-5 h-5"></i>
+                <span class="text-[11px]">스캔/입출고</span>
+            </button>
+            <button onclick="switchTab('inventory')" id="nav-inventory" class="nav-btn flex flex-col items-center justify-center gap-1 text-slate-400 font-medium">
+                <i data-lucide="package" class="w-5 h-5"></i>
+                <span class="text-[11px]">재고 현황</span>
+            </button>
+            <button onclick="switchTab('qrgen')" id="nav-qrgen" class="nav-btn flex flex-col items-center justify-center gap-1 text-slate-400 font-medium">
+                <i data-lucide="qr-code" class="w-5 h-5"></i>
+                <span class="text-[11px]">QR 생성</span>
+            </button>
+            <button onclick="switchTab('settings')" id="nav-settings" class="nav-btn flex flex-col items-center justify-center gap-1 text-slate-400 font-medium">
+                <i data-lucide="settings" class="w-5 h-5"></i>
+                <span class="text-[11px]">백업/배포</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- ========================================== -->
+    <!-- 모달 1: QR 스캔 및 빠른 입출고 처리 모달       -->
+    <!-- ========================================== -->
+    <div id="action-modal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 animate-slide-up">
+            <div class="flex items-start justify-between">
+                <div>
+                    <span id="modal-code-badge" class="inline-block bg-sky-100 text-sky-700 text-xs font-mono font-bold px-2.5 py-0.5 rounded-md mb-1">R-410A</span>
+                    <h3 id="modal-item-name" class="text-xl font-black text-slate-900">R-410A (신냉매)</h3>
+                    <p id="modal-item-spec" class="text-xs text-slate-500 mt-0.5">용량: 11.3kg | 현재 재고: 5통</p>
+                </div>
+                <button onclick="closeActionModal()" class="p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- 입고 / 출고 모드 선택 탭 -->
+            <div class="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-2xl">
+                <button type="button" id="btn-mode-out" onclick="setTransactionType('OUT')" class="py-2.5 rounded-xl font-bold text-sm transition bg-rose-500 text-white shadow-sm">
+                    - 출고 (사용/반출)
+                </button>
+                <button type="button" id="btn-mode-in" onclick="setTransactionType('IN')" class="py-2.5 rounded-xl font-bold text-sm transition text-slate-600">
+                    + 입고 (구매/반납)
+                </button>
+            </div>
+
+            <!-- 수량 조절기 -->
+            <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between">
+                <span class="text-sm font-bold text-slate-700">처리 수량 (통)</span>
+                <div class="flex items-center gap-3">
+                    <button type="button" onclick="adjustModalQty(-1)" class="w-10 h-10 rounded-xl bg-white border border-slate-300 flex items-center justify-center font-bold text-lg active:scale-90">-</button>
+                    <input type="number" id="modal-qty-input" value="1" min="1" class="w-14 text-center font-black text-xl bg-transparent focus:outline-none">
+                    <button type="button" onclick="adjustModalQty(1)" class="w-10 h-10 rounded-xl bg-white border border-slate-300 flex items-center justify-center font-bold text-lg active:scale-90">+</button>
+                </div>
+            </div>
+
+            <!-- 작업자 / 현장 메모 -->
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">현장명 / 작업자 메모 (선택)</label>
+                <input type="text" id="modal-memo-input" placeholder="예: 강남빌딩 3층 에어컨 충진 / 김기사" 
+                    class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-sky-500">
+            </div>
+
+            <button onclick="confirmTransaction()" id="modal-submit-btn" class="w-full bg-rose-500 hover:bg-rose-600 active:scale-98 transition text-white font-bold py-3.5 rounded-2xl text-base shadow-lg">
+                출고 확정하기
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 모달 2: 신규 냉매 품목 등록 모달              -->
+    <!-- ========================================== -->
+    <div id="add-modal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-black text-slate-900">새 냉매 품목 등록</h3>
+                <button onclick="closeAddModal()" class="p-2 bg-slate-100 rounded-full text-slate-500">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <div class="grid grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">냉매 코드 (QR값)*</label>
+                        <input type="text" id="new-code" placeholder="예: R-404A" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm uppercase font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">용기 중량 (kg)*</label>
+                        <input type="number" step="0.1" id="new-weight" placeholder="예: 10.9" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">냉매 품명*</label>
+                    <input type="text" id="new-name" placeholder="예: R-404A (냉동/저온용)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">초기 재고 (통)*</label>
+                        <input type="number" id="new-qty" value="1" min="0" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">안전 재고 알림 기준</label>
+                        <input type="number" id="new-min" value="2" min="0" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">보관 위치 / 비고</label>
+                    <input type="text" id="new-location" placeholder="예: 본사 1층 자재창고" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                </div>
+            </div>
+
+            <button onclick="saveNewItem()" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-3.5 rounded-2xl text-sm shadow-md">
+                품목 등록 완료
+            </button>
+        </div>
+    </div>
+
+    <!-- JavaScript 애플리케이션 로직 -->
+    <script>
+        // ==========================================
+        // 1. 초기 상태 및 데이터 관리 (LocalStorage)
+        // ==========================================
+        const STORAGE_KEY_ITEMS = 'refrigerant_inventory_items_v1';
+        const STORAGE_KEY_LOGS = 'refrigerant_inventory_logs_v1';
+
+        const DEFAULT_ITEMS = [
+            { id: 'R-410A', name: 'R-410A (에어컨 신냉매)', weight: 11.3, qty: 6, minStock: 2, location: '자재창고 A-1' },
+            { id: 'R-22', name: 'R-22 (구냉매/프레온)', weight: 13.6, qty: 2, minStock: 3, location: '자재창고 A-2' },
+            { id: 'R-134A', name: 'R-134a (차량/냉장용)', weight: 13.6, qty: 4, minStock: 2, location: '자재창고 B-1' },
+            { id: 'R-32', name: 'R-32 (친환경 신냉매)', weight: 9.0, qty: 5, minStock: 2, location: '자재창고 B-2' }
+        ];
+
+        const DEFAULT_LOGS = [
+            { id: Date.now() - 3600000, itemId: 'R-410A', itemName: 'R-410A (에어컨 신냉매)', type: 'OUT', qty: 1, memo: '서초동 오피스텔 현장 반출', timestamp: new Date(Date.now() - 3600000).toLocaleString('ko-KR') },
+            { id: Date.now() - 86400000, itemId: 'R-32', itemName: 'R-32 (친환경 신냉매)', type: 'IN', qty: 5, memo: '정기 발주 입고 완료', timestamp: new Date(Date.now() - 86400000).toLocaleString('ko-KR') }
+        ];
+
+        let inventory = [];
+        let logs = [];
+        let html5QrCode = null;
+        let isScannerRunning = false;
+        let activeModalItem = null;
+        let currentTxType = 'OUT';
+
+        // 초기화 실행
+        window.onload = function () {
+            loadData();
+            lucide.createIcons();
+            renderAll();
+            initQrGeneratorSelect();
+            generateQRCode();
+        };
+
+        function loadData() {
+            const savedItems = localStorage.getItem(STORAGE_KEY_ITEMS);
+            const savedLogs = localStorage.getItem(STORAGE_KEY_LOGS);
+
+            if (savedItems) {
+                inventory = JSON.parse(savedItems);
+            } else {
+                inventory = JSON.parse(JSON.stringify(DEFAULT_ITEMS));
+                saveData();
+            }
+
+            if (savedLogs) {
+                logs = JSON.parse(savedLogs);
+            } else {
+                logs = JSON.parse(JSON.stringify(DEFAULT_LOGS));
+                saveData();
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(inventory));
+            localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs));
+            renderAll();
+        }
+
+        // ==========================================
+        // 2. 탭 전환 및 UI 렌더링
+        // ==========================================
+        function switchTab(tabName) {
+            // 다른 탭으로 이동 시 카메라 중지
+            if (tabName !== 'scan' && isScannerRunning) {
+                stopScanner();
+            }
+
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('text-sky-600', 'font-bold');
+                btn.classList.add('text-slate-400', 'font-medium');
+            });
+            const activeBtn = document.getElementById(`nav-${tabName}`);
+            activeBtn.classList.remove('text-slate-400', 'font-medium');
+            activeBtn.classList.add('text-sky-600', 'font-bold');
+
+            if (tabName === 'qrgen') {
+                initQrGeneratorSelect();
+                generateQRCode();
+            }
+            lucide.createIcons();
+        }
+
+        function renderAll() {
+            renderHeaderStats();
+            renderInventory();
+            renderLogs();
+            renderQuickTestButtons();
+            lucide.createIcons();
+        }
+
+        function renderHeaderStats() {
+            const totalQty = inventory.reduce((sum, item) => sum + Number(item.qty), 0);
+            const totalWeight = inventory.reduce((sum, item) => sum + (Number(item.qty) * Number(item.weight)), 0);
+            const lowStockCount = inventory.filter(item => Number(item.qty) <= Number(item.minStock)).length;
+
+            document.getElementById('header-total-badge').textContent = `총 ${totalQty}통`;
+            document.getElementById('stat-total-qty').innerHTML = `${totalQty}<span class="text-xs font-normal ml-0.5">통</span>`;
+            document.getElementById('stat-total-weight').innerHTML = `${totalWeight.toFixed(1)}<span class="text-xs font-normal ml-0.5">kg</span>`;
+            document.getElementById('stat-low-stock').innerHTML = `${lowStockCount}<span class="text-xs font-normal ml-0.5">건</span>`;
+        }
+
+        function renderQuickTestButtons() {
+            const container = document.getElementById('quick-test-buttons');
+            container.innerHTML = inventory.map(item => `
+                <button onclick="onScanSuccess('${item.id}')" class="text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-mono font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition">
+                    📷 ${item.id}
+                </button>
+            `).join('');
+        }
+
+        function renderInventory() {
+            const query = (document.getElementById('inventory-search').value || '').toLowerCase();
+            const listEl = document.getElementById('inventory-list');
+
+            const filtered = inventory.filter(item =>
+                item.id.toLowerCase().includes(query) ||
+                item.name.toLowerCase().includes(query) ||
+                (item.location && item.location.toLowerCase().includes(query))
+            );
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = `<div class="bg-white rounded-2xl p-8 text-center text-slate-400 text-sm border border-slate-200">검색된 냉매 품목이 없습니다.</div>`;
+                return;
+            }
+
+            listEl.innerHTML = filtered.map(item => {
+                const isLow = item.qty <= item.minStock;
+                const totalKg = (item.qty * item.weight).toFixed(1);
+                return `
+                    <div class="bg-white rounded-2xl p-4 shadow-sm border ${isLow ? 'border-rose-300 bg-rose-50/20' : 'border-slate-200/80'} transition">
+                        <div class="flex items-start justify-between">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono font-black text-sm px-2 py-0.5 rounded bg-slate-800 text-white">${item.id}</span>
+                                    ${isLow ? `<span class="text-[11px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full flex items-center gap-0.5">⚠️ 재고부족</span>` : ''}
+                                </div>
+                                <h4 class="font-bold text-base text-slate-800 mt-1.5">${item.name}</h4>
+                                <p class="text-xs text-slate-500 mt-0.5">용기당 ${item.weight}kg · 총 ${totalKg}kg · ${item.location || '위치 미지정'}</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-2xl font-black ${isLow ? 'text-rose-600' : 'text-slate-900'}">${item.qty}</span>
+                                <span class="text-xs text-slate-500 font-bold">통</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                            <button onclick="openQrForItem('${item.id}')" class="text-xs text-slate-500 hover:text-sky-600 font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-50">
+                                <i data-lucide="qr-code" class="w-3.5 h-3.5"></i> QR라벨
+                            </button>
+                            <div class="flex items-center gap-2">
+                                <button onclick="openActionModal('${item.id}', 'OUT')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold px-3.5 py-1.5 rounded-xl text-xs active:scale-95 transition">
+                                    - 출고
+                                </button>
+                                <button onclick="openActionModal('${item.id}', 'IN')" class="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-bold px-3.5 py-1.5 rounded-xl text-xs active:scale-95 transition">
+                                    + 입고
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderLogs() {
+            const scanLogsEl = document.getElementById('scan-recent-logs');
+            const fullLogsEl = document.getElementById('full-history-logs');
+
+            if (logs.length === 0) {
+                const emptyHtml = `<p class="text-xs text-slate-400 text-center py-4">아직 입출고 기록이 없습니다.</p>`;
+                scanLogsEl.innerHTML = emptyHtml;
+                fullLogsEl.innerHTML = emptyHtml;
+                return;
+            }
+
+            const renderLogItem = (log) => {
+                const isIn = log.type === 'IN';
+                return `
+                    <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${isIn ? 'bg-sky-100 text-sky-700' : 'bg-rose-100 text-rose-600'}">
+                                ${isIn ? '입고' : '출고'}
+                            </span>
+                            <div class="truncate">
+                                <p class="text-xs font-bold text-slate-800 truncate">${log.itemId} <span class="font-normal text-slate-500">· ${log.memo || '메모 없음'}</span></p>
+                                <p class="text-[10px] text-slate-400 mt-0.5">${log.timestamp}</p>
+                            </div>
+                        </div>
+                        <span class="font-black text-sm ml-2 shrink-0 ${isIn ? 'text-sky-600' : 'text-rose-600'}">
+                            ${isIn ? '+' : '-'}${log.qty}통
+                        </span>
+                    </div>
+                `;
+            };
+
+            scanLogsEl.innerHTML = logs.slice(0, 4).map(renderLogItem).join('');
+            fullLogsEl.innerHTML = logs.slice(0, 30).map(renderLogItem).join('');
+        }
+
+        // ==========================================
+        // 3. QR 코드 카메라 스캐너 (html5-qrcode)
+        // ==========================================
+        function startScanner() {
+            const placeholder = document.getElementById('camera-placeholder');
+            const controls = document.getElementById('camera-controls');
+            const statusBadge = document.getElementById('camera-status');
+
+            placeholder.classList.add('hidden');
+            controls.classList.remove('hidden');
+            statusBadge.textContent = '카메라 연결 중...';
+            statusBadge.className = 'text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700';
+
+            html5QrCode = new Html5Qrcode("reader");
+            const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0 };
+
+            html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+                // 스캔 성공 시 진동 피드백 (지원 기기)
+                if (navigator.vibrate) navigator.vibrate(100);
+                onScanSuccess(decodedText);
+            }, (errorMessage) => {
+                // 스캔 대기 중 프레임 에러 무시
+            }).then(() => {
+                isScannerRunning = true;
+                statusBadge.textContent = '스캔 작동 중';
+                statusBadge.className = 'text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+            }).catch(err => {
+                console.error("카메라 시작 실패:", err);
+                stopScanner();
+                showToast('카메라 권한이 없거나 HTTPS 환경이 아닙니다. 아래 테스트 버튼을 이용하세요.', 'error');
+            });
+        }
+
+        function stopScanner() {
+            const placeholder = document.getElementById('camera-placeholder');
+            const controls = document.getElementById('camera-controls');
+            const statusBadge = document.getElementById('camera-status');
+
+            if (html5QrCode && isScannerRunning) {
+                html5QrCode.stop().then(() => {
+                    html5QrCode.clear();
+                    isScannerRunning = false;
+                }).catch(() => {});
+            }
+            placeholder.classList.remove('hidden');
+            controls.classList.add('hidden');
+            statusBadge.textContent = '대기 중';
+            statusBadge.className = 'text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500';
+        }
+
+        function handleManualCodeSubmit() {
+            const input = document.getElementById('manual-code-input');
+            const code = input.value.trim().toUpperCase();
+            if (!code) {
+                showToast('냉매 코드를 입력해주세요.', 'error');
+                return;
+            }
+            input.value = '';
+            onScanSuccess(code);
+        }
+
+        function onScanSuccess(rawCode) {
+            const cleanCode = rawCode.trim().toUpperCase();
+            // 모달이 이미 열려있으면 중복 실행 방지
+            if (!document.getElementById('action-modal').classList.contains('hidden')) return;
+
+            const found = inventory.find(item => item.id.toUpperCase() === cleanCode);
+            if (found) {
+                openActionModal(found.id, 'OUT');
+            } else {
+                showToast(`미등록 코드(${cleanCode})입니다. 새 품목으로 등록해주세요.`, 'info');
+                openAddModal(cleanCode);
+            }
+        }
+
+        // ==========================================
+        // 4. 입출고 액션 모달 & 품목 추가 모달
+        // ==========================================
+        function openActionModal(itemId, defaultType = 'OUT') {
+            const item = inventory.find(i => i.id === itemId);
+            if (!item) return;
+
+            activeModalItem = item;
+            document.getElementById('modal-code-badge').textContent = item.id;
+            document.getElementById('modal-item-name').textContent = item.name;
+            document.getElementById('modal-item-spec').textContent = `용기 중량: ${item.weight}kg | 현재 재고: ${item.qty}통`;
+            document.getElementById('modal-qty-input').value = 1;
+            document.getElementById('modal-memo-input').value = '';
+
+            setTransactionType(defaultType);
+            document.getElementById('action-modal').classList.remove('hidden');
+        }
+
+        function closeActionModal() {
+            document.getElementById('action-modal').classList.add('hidden');
+            activeModalItem = null;
+        }
+
+        function setTransactionType(type) {
+            currentTxType = type;
+            const btnOut = document.getElementById('btn-mode-out');
+            const btnIn = document.getElementById('btn-mode-in');
+            const submitBtn = document.getElementById('modal-submit-btn');
+
+            if (type === 'OUT') {
+                btnOut.className = 'py-2.5 rounded-xl font-bold text-sm transition bg-rose-500 text-white shadow-sm';
+                btnIn.className = 'py-2.5 rounded-xl font-bold text-sm transition text-slate-600';
+                submitBtn.className = 'w-full bg-rose-500 hover:bg-rose-600 active:scale-98 transition text-white font-bold py-3.5 rounded-2xl text-base shadow-lg';
+                submitBtn.textContent = '출고 확정하기';
+            } else {
+                btnIn.className = 'py-2.5 rounded-xl font-bold text-sm transition bg-sky-600 text-white shadow-sm';
+                btnOut.className = 'py-2.5 rounded-xl font-bold text-sm transition text-slate-600';
+                submitBtn.className = 'w-full bg-sky-600 hover:bg-sky-700 active:scale-98 transition text-white font-bold py-3.5 rounded-2xl text-base shadow-lg';
+                submitBtn.textContent = '입고 확정하기';
+            }
+        }
+
+        function adjustModalQty(delta) {
+            const input = document.getElementById('modal-qty-input');
+            let val = parseInt(input.value || '1', 10) + delta;
+            if (val < 1) val = 1;
+            input.value = val;
+        }
+
+        function confirmTransaction() {
+            if (!activeModalItem) return;
+            const qty = parseInt(document.getElementById('modal-qty-input').value, 10);
+            const memo = document.getElementById('modal-memo-input').value.trim();
+
+            if (isNaN(qty) || qty <= 0) {
+                showToast('올바른 수량을 입력하세요.', 'error');
+                return;
+            }
+
+            if (currentTxType === 'OUT' && activeModalItem.qty < qty) {
+                showToast(`재고가 부족합니다! (현재 재고: ${activeModalItem.qty}통)`, 'error');
+                return;
+            }
+
+            // 재고 업데이트
+            if (currentTxType === 'OUT') {
+                activeModalItem.qty -= qty;
+            } else {
+                activeModalItem.qty += qty;
+            }
+
+            // 히스토리 추가
+            logs.unshift({
+                id: Date.now(),
+                itemId: activeModalItem.id,
+                itemName: activeModalItem.name,
+                type: currentTxType,
+                qty: qty,
+                memo: memo,
+                timestamp: new Date().toLocaleString('ko-KR')
+            });
+
+            saveData();
+            showToast(`${activeModalItem.id} ${qty}통 ${currentTxType === 'IN' ? '입고' : '출고'} 처리되었습니다.`, 'success');
+            closeActionModal();
+        }
+
+        // 신규 품목 추가 모달
+        function openAddModal(prefillCode = '') {
+            document.getElementById('new-code').value = prefillCode;
+            document.getElementById('new-name').value = prefillCode ? `${prefillCode} 냉매` : '';
+            document.getElementById('new-weight').value = '11.3';
+            document.getElementById('new-qty').value = '1';
+            document.getElementById('new-min').value = '2';
+            document.getElementById('new-location').value = '';
+            document.getElementById('add-modal').classList.remove('hidden');
+        }
+
+        function closeAddModal() {
+            document.getElementById('add-modal').classList.add('hidden');
+        }
+
+        function saveNewItem() {
+            const code = document.getElementById('new-code').value.trim().toUpperCase();
+            const name = document.getElementById('new-name').value.trim();
+            const weight = parseFloat(document.getElementById('new-weight').value);
+            const qty = parseInt(document.getElementById('new-qty').value, 10);
+            const minStock = parseInt(document.getElementById('new-min').value, 10) || 0;
+            const location = document.getElementById('new-location').value.trim();
+
+            if (!code || !name || isNaN(weight) || isNaN(qty)) {
+                showToast('필수 항목(코드, 품명, 중량, 수량)을 모두 입력하세요.', 'error');
+                return;
+            }
+
+            if (inventory.some(i => i.id.toUpperCase() === code)) {
+                showToast('이미 등록된 냉매 코드입니다.', 'error');
+                return;
+            }
+
+            inventory.push({ id: code, name, weight, qty, minStock, location });
+            logs.unshift({
+                id: Date.now(),
+                itemId: code,
+                itemName: name,
+                type: 'IN',
+                qty: qty,
+                memo: '신규 품목 초기 등록',
+                timestamp: new Date().toLocaleString('ko-KR')
+            });
+
+            saveData();
+            closeAddModal();
+            showToast(`${code} 품목이 등록되었습니다.`, 'success');
+        }
+
+        // ==========================================
+        // 5. QR 코드 생성 및 라벨 저장/출력
+        // ==========================================
+        function initQrGeneratorSelect() {
+            const select = document.getElementById('qr-select-item');
+            select.innerHTML = inventory.map(item => `<option value="${item.id}">${item.id} - ${item.name}</option>`).join('');
+            if (inventory.length > 0 && !document.getElementById('qr-custom-code').value) {
+                onQrSelectChange();
+            }
+        }
+
+        function onQrSelectChange() {
+            const selectedId = document.getElementById('qr-select-item').value;
+            const item = inventory.find(i => i.id === selectedId);
+            if (item) {
+                document.getElementById('qr-custom-code').value = item.id;
+                document.getElementById('qr-label-subtext').value = `${item.weight}kg / ${item.location || '표준냉매'}`;
+                generateQRCode();
+            }
+        }
+
+        function openQrForItem(itemId) {
+            switchTab('qrgen');
+            document.getElementById('qr-select-item').value = itemId;
+            onQrSelectChange();
+        }
+
+        function generateQRCode() {
+            const codeText = (document.getElementById('qr-custom-code').value || 'R-410A').trim().toUpperCase();
+            const subText = document.getElementById('qr-label-subtext').value || '';
+
+            document.getElementById('qr-display-title').textContent = codeText;
+            document.getElementById('qr-display-sub').textContent = subText;
+
+            const qrContainer = document.getElementById('qrcode-canvas');
+            qrContainer.innerHTML = '';
+
+            new QRCode(qrContainer, {
+                text: codeText,
+                width: 160,
+                height: 160,
+                colorDark: "#0f172a",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+        }
+
+        function downloadQRImage() {
+            const qrCanvas = document.querySelector('#qrcode-canvas canvas');
+            if (!qrCanvas) return;
+
+            const codeText = document.getElementById('qr-display-title').textContent;
+            const link = document.createElement('a');
+            link.download = `QR_${codeText}.png`;
+            link.href = qrCanvas.toDataURL('image/png');
+            link.click();
+            showToast(`QR_${codeText}.png 이미지가 저장되었습니다.`, 'success');
+        }
+
+        // ==========================================
+        // 6. 백업 (CSV / JSON) 및 초기화
+        // ==========================================
+        function exportCSV() {
+            // 엑셀 한글 깨짐 방지용 UTF-8 BOM 추가
+            let csvContent = '\uFEFF냉매코드,품명,용기중량(kg),현재재고(통),총중량(kg),안전재고기준,보관위치\n';
+            inventory.forEach(item => {
+                const totalKg = (item.qty * item.weight).toFixed(1);
+                csvContent += `"${item.id}","${item.name}",${item.weight},${item.qty},${totalKg},${item.minStock},"${item.location || ''}"\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const today = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `냉매재고현황_${today}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('엑셀(CSV) 파일이 다운로드되었습니다.', 'success');
+        }
+
+        function exportJSON() {
+            const backupData = {
+                exportedAt: new Date().toISOString(),
+                inventory,
+                logs
+            };
+            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const today = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `냉매재고백업_${today}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('JSON 백업 파일이 저장되었습니다.', 'success');
+        }
+
+        function importJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (Array.isArray(parsed.inventory)) {
+                        inventory = parsed.inventory;
+                        logs = Array.isArray(parsed.logs) ? parsed.logs : [];
+                        saveData();
+                        showToast('백업 데이터를 성공적으로 복원했습니다!', 'success');
+                    } else {
+                        showToast('올바른 백업 파일 형식이 아닙니다.', 'error');
+                    }
+                } catch (err) {
+                    showToast('파일을 읽는 중 오류가 발생했습니다.', 'error');
+                }
+                event.target.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+        function resetToDefaultData() {
+            inventory = JSON.parse(JSON.stringify(DEFAULT_ITEMS));
+            logs = JSON.parse(JSON.stringify(DEFAULT_LOGS));
+            saveData();
+            showToast('초기 샘플 데이터로 복원되었습니다.', 'info');
+        }
+
+        function clearLogsConfirm() {
+            logs = [];
+            saveData();
+            showToast('입출고 히스토리가 비워졌습니다.', 'info');
+        }
+
+        // ==========================================
+        // 7. 커스텀 토스트 메시지 유틸리티
+        // ==========================================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+
+            let bgClass = 'bg-slate-800 text-white';
+            if (type === 'success') bgClass = 'bg-emerald-600 text-white';
+            if (type === 'error') bgClass = 'bg-rose-600 text-white';
+
+            toast.className = `${bgClass} px-4 py-3 rounded-2xl shadow-lg text-xs font-bold text-center transition-all duration-300 transform translate-y-0 opacity-100`;
+            toast.textContent = message;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 2800);
+        }
+    </script>
+</body>
+</html>
